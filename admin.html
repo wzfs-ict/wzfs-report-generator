@@ -1,0 +1,864 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WZFS MidTerm Report Generator</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Embedded PapaParse for complete offline/single-file capability -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <style>
+        :root {
+            --navy: #1b2d5e;
+            --navy-dark: #111e42;
+            --navy-light: #263d7a;
+            --gold: #c9a227;
+            --gold-light: #f0d882;
+            --gold-pale: #fdf6e0;
+            --cream: #f9f6ef;
+        }
+
+        body {
+            background-color: var(--cream);
+            -webkit-print-color-adjust: exact !important; 
+            print-color-adjust: exact !important;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        .bg-navy { background-color: var(--navy); }
+        .text-navy { color: var(--navy); }
+        .text-gold { color: var(--gold); }
+        .border-navy { border-color: var(--navy); }
+        .border-gold { border-color: var(--gold); }
+
+        /* Custom Styles for badges */
+        .badge-1 { background-color: #dcfce7; color: #166534; border-color: #22c55e; }
+        .badge-2 { background-color: #fef08a; color: #854d0e; border-color: #eab308; }
+        .badge-3 { background-color: #fed7aa; color: #9a3412; border-color: #f97316; }
+        .badge-4 { background-color: #fecaca; color: #991b1b; border-color: #ef4444; }
+
+        /* =========================================
+           PRINT SPECIFIC CSS (ONE-PAGE LANDSCAPE)
+           ========================================= */
+        @media print {
+            @page {
+                size: A4 landscape;
+                margin: 8mm 10mm;
+            }
+            body {
+                background-color: white;
+            }
+            .no-print {
+                display: none !important;
+            }
+            .print-only {
+                display: block !important;
+            }
+            
+            /* Single Page Container */
+            .print-page {
+                page-break-after: always;
+                page-break-inside: avoid;
+                width: 100%;
+                height: 188mm; /* Ensures it never spills to page 2 */
+                overflow: hidden;
+                display: flex;
+                flex-direction: column;
+            }
+            .print-page:last-child {
+                page-break-after: auto;
+            }
+
+            /* DATA PAGE LAYOUT */
+            .print-header {
+                border-bottom: 4px solid var(--navy);
+                padding-bottom: 10px;
+                margin-bottom: 15px;
+            }
+
+            .print-body {
+                display: flex;
+                flex-direction: row;
+                gap: 15px;
+                flex-grow: 1;
+                overflow: hidden;
+            }
+            .print-table-col { width: 62%; }
+            .print-chart-col {
+                width: 38%;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: flex-start;
+            }
+
+            /* Table Optimization */
+            .print-table {
+                width: 100%;
+                border-collapse: collapse;
+                font-size: 11px;
+            }
+            .print-table th, .print-table td {
+                border: 1px solid #e2e8f0;
+                padding: 3px 5px; /* Compacted to fit up to 15 subjects */
+                vertical-align: middle;
+            }
+            .print-table th {
+                background-color: var(--navy) !important;
+                color: white !important;
+                font-weight: bold;
+                text-align: left;
+            }
+            .print-table td.remarks-col {
+                font-size: 10px;
+                font-style: italic;
+                color: #475569;
+                line-height: 1.2;
+            }
+            .print-table tr {
+                page-break-inside: avoid;
+            }
+
+            .print-chart-container {
+                width: 100%;
+                height: 310px;
+                position: relative;
+            }
+        }
+    </style>
+</head>
+<body class="min-h-screen text-slate-800">
+
+    <!-- TOP NAVIGATION (Hidden during print) -->
+    <div class="no-print bg-navy shadow-lg text-white p-4 sticky top-0 z-50">
+        <div class="max-w-[1400px] mx-auto flex flex-col xl:flex-row justify-between items-center gap-4">
+            <div class="flex items-center gap-4">
+                <img src="https://weihaizhongshi.com/wp-content/uploads/2018/12/%ED%99%88%ED%8E%98%EC%9D%B4%EC%A7%80-%EB%89%B4-%EB%A1%9C%EA%B3%A0_%ED%9D%B0%EC%83%89.png.webp" alt="WZFS Logo" class="h-10 w-auto object-contain">
+                <h1 class="text-xl font-bold tracking-wider hidden md:block">WZFS Report Generator</h1>
+            </div>
+            
+            <div class="flex gap-2 w-full xl:w-auto items-center flex-wrap justify-center">
+                <!-- CSV Upload Input (Hidden) & Label Button -->
+                <input type="file" id="csv-upload" accept=".csv" class="hidden" onchange="handleCSVUpload(event)">
+                <label for="csv-upload" class="bg-slate-700 hover:bg-slate-600 text-white cursor-pointer px-3 py-2 rounded font-semibold text-sm transition flex items-center gap-2 shadow-sm">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
+                    Load CSV
+                </label>
+
+                <!-- Reset Button -->
+                <button onclick="resetApp()" class="bg-red-600 hover:bg-red-700 text-white cursor-pointer px-3 py-2 rounded font-semibold text-sm transition flex items-center gap-2 shadow-sm">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                    Reset
+                </button>
+
+                <select id="student-select" class="bg-white text-navy px-2 py-2 rounded font-semibold w-full sm:w-48 border-2 border-gold outline-none text-sm" onchange="renderSingleView()">
+                    <!-- Options populated by JS -->
+                </select>
+
+                <button onclick="triggerPrintAll()" class="bg-gold hover:bg-yellow-500 text-navy font-bold py-2 px-4 rounded shadow-sm transition whitespace-nowrap flex items-center gap-2 text-sm">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"></path></svg>
+                    Print
+                </button>
+
+                <!-- NEW: Save as Doc Button -->
+                <button onclick="exportToWord()" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded shadow-sm transition whitespace-nowrap flex items-center gap-2 text-sm">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                    Save as Doc
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- EMPTY STATE / INSTRUCTIONS FOR TEACHERS (Visible when no CSV is loaded) -->
+    <div id="empty-state" class="no-print max-w-4xl mx-auto mt-12 mb-12 p-10 bg-white rounded-xl shadow-lg border-t-8 border-navy flex flex-col items-center">
+        
+        <img src="https://weihaizhongshi.com/wp-content/uploads/2018/12/%ED%99%88%ED%8E%98%EC%9D%B4%EC%A7%80-%EB%89%B4-%EB%A1%9C%EA%B3%A0_%ED%9D%B0%EC%83%89.png.webp" alt="WZFS Logo" class="h-24 w-auto mb-6 object-contain bg-navy p-3 rounded-xl shadow-inner">
+        <h2 class="text-3xl font-black text-navy mb-2 tracking-widest uppercase">Report Card Generator</h2>
+        <p class="text-slate-500 mb-8 font-medium">Academic Year 2025 - 2026</p>
+
+        <div class="bg-slate-50 border border-slate-200 rounded-lg p-6 w-full text-left mb-8 shadow-sm">
+            <h3 class="text-lg font-bold text-navy mb-4 border-b-2 border-gold inline-block pb-1">Instructions for Teachers</h3>
+            
+            <!-- NEW: Critical Formatting Instruction Box -->
+            <div class="mb-4 p-3 bg-amber-50 border-l-4 border-amber-500 text-sm text-amber-900 rounded leading-relaxed shadow-sm">
+                <b>CRITICAL FORMATTING:</b> Row 1 of your Excel file <u>must</u> have <b>Student ID</b>, <b>Full name</b>, <b>Called name</b>, and subject columns formatted exactly as <b>SubjectName_Score</b>, <b>SubjectName_Behaviour</b>, and <b>SubjectName_Comment</b> (e.g., <i>Maths_Score, Maths_Behaviour</i>) so that the app reads the information properly.
+            </div>
+
+            <ol class="list-decimal list-inside space-y-3 text-slate-700 text-sm font-medium">
+                <li>Open your finalized class grades sheet in Microsoft Excel.</li>
+                <li>Go to <b>File > Save As</b>.</li>
+                <li>Change the file type to <b>CSV (Comma delimited) (*.csv)</b> and save it to your computer.</li>
+                <li>Click the gold <b>"Load Master CSV"</b> button below and select the file you just saved.</li>
+                <li>The system will automatically generate the tables and radar charts for every student!</li>
+                <li>Review the individual reports using the dropdown menu at the top.</li>
+                <li>When ready, click <b>"Print"</b> (ensure your printer is set to <i>Landscape</i>) OR click <b>"Save as Doc"</b> to download all reports into a single Microsoft Word document!</li>
+            </ol>
+            <div class="mt-4 p-3 bg-blue-50 border-l-4 border-blue-400 text-xs text-blue-800 rounded">
+                <b>Note:</b> If you upload the wrong file or need to refresh the data, simply click the red <b>Reset</b> button at the top to start over.
+            </div>
+        </div>
+
+        <label for="csv-upload" class="bg-gold hover:bg-yellow-500 text-navy cursor-pointer px-8 py-4 rounded-lg font-black text-lg transition shadow-lg inline-flex items-center gap-3">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
+            Load Master CSV
+        </label>
+    </div>
+
+    <!-- MAIN APP CONTAINER (Single View Preview - Hidden during print) -->
+    <div id="single-view-container" class="no-print hidden max-w-6xl mx-auto mt-6 mb-12 flex-col gap-6">
+        
+        <!-- ONE-PAGE PREVIEW LAYOUT -->
+        <div class="p-8 bg-white rounded-xl shadow-2xl border-t-8 border-navy">
+            
+            <!-- Preview Header -->
+            <div class="flex flex-col md:flex-row justify-between items-center border-b-4 border-navy pb-6 mb-6">
+                <div class="flex items-center gap-6">
+                    <img src="https://weihaizhongshi.com/wp-content/uploads/2018/12/%ED%99%88%ED%8E%98%EC%9D%B4%EC%A7%80-%EB%89%B4-%EB%A1%9C%EA%B3%A0_%ED%9D%B0%EC%83%89.png.webp" alt="WZFS Logo" class="h-20 w-auto bg-navy p-2 rounded object-contain shadow-md">
+                    <div>
+                        <h1 class="text-3xl font-black text-navy uppercase tracking-widest leading-none mb-1">Weihai Zhongshi Foreign School</h1>
+                        <h2 class="text-xl font-bold text-slate-500">Mid-Term Report | Academic Year 2025 - 2026</h2>
+                    </div>
+                </div>
+                
+                <div class="mt-6 md:mt-0 text-right bg-slate-50 border border-slate-200 p-4 rounded-lg shadow-inner min-w-[300px]">
+                    <h3 id="sv-cover-name" class="text-2xl font-black text-navy mb-1">Loading...</h3>
+                    <p id="sv-cover-info" class="text-sm font-bold text-slate-500">Loading...</p>
+                </div>
+            </div>
+
+            <!-- Single View Layout -->
+            <div class="grid grid-cols-1 lg:grid-cols-5 gap-8">
+                <!-- Table Side (Spans 3 columns) -->
+                <div class="lg:col-span-3 bg-white rounded border border-slate-100 shadow-sm overflow-hidden">
+                    <table class="w-full text-left">
+                        <thead>
+                            <tr class="bg-navy text-white text-sm">
+                                <th class="py-3 px-4 font-semibold w-[20%]">Subject</th>
+                                <th class="py-3 px-4 font-semibold text-center w-[10%]">Score</th>
+                                <th class="py-3 px-4 font-semibold text-center w-[10%]">Behav.</th>
+                                <th class="py-3 px-4 font-semibold w-[20%]">Target</th>
+                                <th class="py-3 px-4 font-semibold w-[40%]">Remarks</th>
+                            </tr>
+                        </thead>
+                        <tbody id="sv-table-body">
+                            <!-- Populated by JS -->
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Chart Side (Spans 2 columns) -->
+                <div class="lg:col-span-2 flex flex-col items-center justify-start bg-slate-50 p-6 rounded border border-slate-100 shadow-sm">
+                    <h3 class="font-bold text-navy mb-4 w-full text-left uppercase tracking-wider text-sm border-b-2 border-gold pb-1">Performance Radar</h3>
+                    <div class="relative w-full max-w-[400px] h-[350px]">
+                        <canvas id="sv-chart"></canvas>
+                    </div>
+                    
+                    <div class="mt-8 w-full">
+                        <h3 class="font-bold text-navy mb-2 uppercase tracking-wider text-sm">Behaviour Key</h3>
+                        <div class="grid grid-cols-2 gap-2 text-xs font-medium text-center">
+                            <div class="bg-green-100 text-green-800 p-2 rounded border border-green-300">1 - Excellent</div>
+                            <div class="bg-yellow-100 text-yellow-800 p-2 rounded border border-yellow-300">2 - Good</div>
+                            <div class="bg-orange-100 text-orange-800 p-2 rounded border border-orange-300">3 - Satisfactory</div>
+                            <div class="bg-red-100 text-red-800 p-2 rounded border border-red-300">4 - Needs Impr.</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- PRINT ALL CONTAINER (Only visible during print) -->
+    <!-- Dynamically populated by JS when print button is clicked -->
+    <div id="print-all-container" class="hidden print-only"></div>
+
+    <script>
+        // --- 1. DATA STORE ---
+        let CURRENT_DATA = [];
+
+        // --- 2. CONFIGURATION & HELPERS ---
+        let currentChartInstance = null;
+        let printChartInstances = [];
+
+        const getBadgeStyle = (behaviour) => {
+            const b = String(behaviour).trim();
+            if (b === '1') return 'badge-1';
+            if (b === '2') return 'badge-2';
+            if (b === '3') return 'badge-3';
+            if (b === '4') return 'badge-4';
+            return 'bg-slate-100 text-slate-500 border-slate-200';
+        };
+
+        const getChartConfig = (student, animate = true) => {
+            const labels = student.subjects.map(s => s.name);
+            const data = student.subjects.map(s => s.score === '-' || isNaN(s.score) ? 0 : s.score); 
+
+            return {
+                type: 'radar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Subject Score',
+                        data: data,
+                        backgroundColor: 'rgba(201, 162, 39, 0.2)', // Gold pale
+                        borderColor: '#c9a227', // Gold
+                        pointBackgroundColor: '#1b2d5e', // Navy
+                        pointBorderColor: '#fff',
+                        pointHoverBackgroundColor: '#fff',
+                        pointHoverBorderColor: '#1b2d5e',
+                        borderWidth: 2,
+                        pointRadius: 4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: animate ? { duration: 1000 } : false, 
+                    scales: {
+                        r: {
+                            angleLines: { color: 'rgba(0, 0, 0, 0.1)' },
+                            grid: { color: 'rgba(0, 0, 0, 0.1)' },
+                            pointLabels: {
+                                font: { size: animate ? 11 : 9, family: "'Segoe UI', sans-serif" },
+                                color: '#1b2d5e'
+                            },
+                            ticks: {
+                                min: 0, max: 100, stepSize: 20,
+                                backdropColor: 'transparent',
+                                color: '#64748b'
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: { display: false }
+                    }
+                }
+            };
+        };
+
+        // --- RESET FUNCTION ---
+        function resetApp() {
+            CURRENT_DATA = [];
+            document.getElementById('csv-upload').value = '';
+            document.getElementById('student-select').innerHTML = '';
+            document.getElementById('print-all-container').innerHTML = '';
+            if (currentChartInstance) {
+                currentChartInstance.destroy();
+                currentChartInstance = null;
+            }
+            printChartInstances.forEach(chart => chart.destroy());
+            printChartInstances = [];
+            renderSingleView(); // Will naturally show empty state
+        }
+
+        // --- 3. FORGIVING CSV PARSING LOGIC ---
+        function handleCSVUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            if (!file.name.toLowerCase().endsWith('.csv')) {
+                alert("Please upload a .csv file.");
+                return;
+            }
+
+            Papa.parse(file, {
+                header: false, // We handle headers manually to support 2-row Excel exports!
+                skipEmptyLines: true,
+                complete: function(results) {
+                    if (results.errors && results.errors.length > 0 && results.data.length === 0) {
+                        alert("Error parsing CSV: " + results.errors[0].message);
+                        return;
+                    }
+                    processCSVData(results.data);
+                }
+            });
+        }
+
+        function processCSVData(rows) {
+            let newData = [];
+            if (rows.length < 2) {
+                alert("The CSV file appears to be empty or missing data rows.");
+                return;
+            }
+
+            // 1. Extract First Two Rows
+            let headerRow1 = rows[0].map(s => s ? String(s).trim() : '');
+            let headerRow2 = rows[1].map(s => s ? String(s).trim() : '');
+
+            // 2. Identify if it's a 2-Row Header
+            let isTwoRowHeader = false;
+            let row2HasSubHeaders = headerRow2.some(h => /score|mark|behav|comment|target/i.test(h));
+            let row1HasEmptiesWhereRow2HasData = false;
+            
+            for (let i = 0; i < headerRow1.length; i++) {
+                if (headerRow1[i] === "" && headerRow2[i] !== "") row1HasEmptiesWhereRow2HasData = true;
+            }
+
+            if (row2HasSubHeaders && row1HasEmptiesWhereRow2HasData) {
+                isTwoRowHeader = true;
+            }
+
+            // 3. Build a flat unified header array
+            let combinedHeaders = [];
+            let dataStartIndex = 1;
+
+            if (isTwoRowHeader) {
+                dataStartIndex = 2; // Real student data starts on row index 2
+                let currentSubject = "";
+                for (let i = 0; i < headerRow1.length; i++) {
+                    let h1 = headerRow1[i];
+                    let h2 = headerRow2[i];
+
+                    if (h1 !== "") currentSubject = h1;
+
+                    if (h2 !== "") {
+                        if (currentSubject.toLowerCase() === h2.toLowerCase()) {
+                            combinedHeaders.push(currentSubject); 
+                        } else if (currentSubject !== "") {
+                            combinedHeaders.push(currentSubject + "_" + h2); 
+                        } else {
+                            combinedHeaders.push(h2);
+                        }
+                    } else {
+                        combinedHeaders.push(currentSubject || `Col_${i}`);
+                    }
+                }
+            } else {
+                combinedHeaders = headerRow1;
+            }
+
+            const headers = combinedHeaders;
+            
+            // Find base identifying columns
+            const idHeader = headers.find(h => h.toLowerCase().match(/\bid\b|student_id|studentid|student id/i)) || headers[0];
+            
+            let nameHeader = headers.find(h => h.toLowerCase() === 'full_name' || h.toLowerCase() === 'fullname' || h.toLowerCase() === 'student_name');
+            if (!nameHeader) nameHeader = headers.find(h => h.toLowerCase().includes('name') && !h.toLowerCase().includes('called') && !h.toLowerCase().includes('english'));
+            if (!nameHeader) nameHeader = headers.find(h => h.toLowerCase().includes('name'));
+            if (!nameHeader) nameHeader = headers[1];
+
+            // Added detection for Called Name / English Name
+            let calledNameHeader = headers.find(h => h.toLowerCase() === 'called_name' || h.toLowerCase() === 'called name' || h.toLowerCase() === 'english name' || h.toLowerCase() === 'english_name');
+
+            const gradeHeader = headers.find(h => h.toLowerCase().includes('grade') || h.toLowerCase().includes('class'));
+
+            // 4. Map the Data
+            for (let i = dataStartIndex; i < rows.length; i++) {
+                let rowArray = rows[i];
+                let row = {};
+                for (let j = 0; j < headers.length; j++) {
+                    row[headers[j]] = rowArray[j];
+                }
+
+                // SMART FILTER: Strictly ignore rows that look like duplicated headers
+                let nameVal = row[nameHeader] ? String(row[nameHeader]).toLowerCase().trim() : '';
+                let idVal = row[idHeader] ? String(row[idHeader]).toLowerCase().trim() : '';
+                
+                if (!nameVal && !idVal) continue; 
+                if (nameVal === 'name' || nameVal === 'full name' || nameVal === 'student name' || nameVal === 'full_name') continue;
+                if (idVal === 'id' || idVal === 'student id' || idVal === 'student_id') continue;
+
+                let subjectsMap = {};
+                
+                headers.forEach(key => {
+                    const val = row[key];
+                    if (val === undefined || val === null || String(val).trim() === '') return;
+
+                    // Regex handles complex suffixes and weird trailing numbers
+                    const robustSuffixRegex = /^(.*?)(?:_|\s+|-)*(score|marks?|grades?|behaviour|behavior|teacher'?s?\s*comments?|comments?|remarks?|targets?)(?:_|\s+|-)*\d*$/i;
+                    const match = key.match(robustSuffixRegex);
+
+                    if (match) {
+                        let rawName = match[1].trim();
+                        if (!rawName || rawName === '') return; 
+
+                        let subjectName = rawName.replace(/_/g, ' ').replace(/([a-z])([A-Z])/g, '$1 $2').trim();
+                        
+                        if (subjectName.toUpperCase() === 'PE') {
+                            subjectName = 'Physical Education';
+                        }
+
+                        let typeStr = match[2].toLowerCase();
+                        
+                        if (!subjectsMap[subjectName]) {
+                            subjectsMap[subjectName] = { name: subjectName, score: '-', behaviour: '-', remarks: '', target: '-' };
+                        }
+                        
+                        if (typeStr.includes('score') || typeStr.includes('mark') || typeStr.includes('grade')) {
+                            subjectsMap[subjectName].score = !isNaN(parseFloat(val)) ? parseFloat(val) : String(val).trim();
+                        } else if (typeStr.includes('behav')) {
+                            subjectsMap[subjectName].behaviour = String(val).trim();
+                        } else if (typeStr.includes('comment') || typeStr.includes('remark')) {
+                            subjectsMap[subjectName].remarks = String(val).trim();
+                        } else if (typeStr.includes('target')) {
+                            subjectsMap[subjectName].target = String(val).trim();
+                        }
+                    }
+                });
+
+                let subjects = Object.values(subjectsMap).filter(s => s.score !== '-' || s.remarks !== '' || s.behaviour !== '-' || s.target !== '-');
+
+                let calledNameVal = calledNameHeader && row[calledNameHeader] ? String(row[calledNameHeader]).trim() : '';
+
+                if (subjects.length > 0 && (row[nameHeader] || row[idHeader])) {
+                    newData.push({
+                        id: row[idHeader] || '-',
+                        name: row[nameHeader] || 'Unknown',
+                        calledName: calledNameVal,
+                        grade: gradeHeader ? (row[gradeHeader] || '') : '',
+                        subjects: subjects
+                    });
+                }
+            }
+
+            if (newData.length > 0) {
+                CURRENT_DATA = newData;
+                populateDropdown();
+                renderSingleView();
+            } else {
+                alert(`Could not extract any student grades. Ensure headers look like 'Maths_Score' or that it's a valid 2-row layout.`);
+            }
+        }
+
+        // --- 4. SINGLE VIEW LOGIC ---
+        function populateDropdown() {
+            const select = document.getElementById('student-select');
+            select.innerHTML = ''; 
+            CURRENT_DATA.forEach((student, index) => {
+                const option = document.createElement('option');
+                option.value = index;
+                let displayName = student.name;
+                if (student.calledName) displayName += ` (${student.calledName})`;
+                option.textContent = `${displayName} | ${student.id}`;
+                select.appendChild(option);
+            });
+        }
+
+        function renderSingleView() {
+            const container = document.getElementById('single-view-container');
+            const emptyState = document.getElementById('empty-state');
+
+            if (CURRENT_DATA.length === 0) {
+                container.classList.add('hidden');
+                container.classList.remove('flex');
+                emptyState.classList.remove('hidden');
+                return;
+            } else {
+                container.classList.remove('hidden');
+                container.classList.add('flex');
+                emptyState.classList.add('hidden');
+            }
+
+            const index = document.getElementById('student-select').value;
+            const student = CURRENT_DATA[index];
+            if(!student) return;
+
+            // Update Single Page Preview Header
+            let displayNameHTML = student.name;
+            if (student.calledName) displayNameHTML += ` <span class="text-gold">(${student.calledName})</span>`;
+            document.getElementById('sv-cover-name').innerHTML = displayNameHTML;
+            document.getElementById('sv-cover-info').textContent = `ID: ${student.id} | Grade: ${student.grade}`;
+
+            // Update Grades Table
+            const tbody = document.getElementById('sv-table-body');
+            tbody.innerHTML = '';
+            
+            student.subjects.forEach((s, i) => {
+                const bg = i % 2 === 0 ? 'bg-white' : 'bg-slate-50/70';
+                tbody.insertAdjacentHTML('beforeend', `
+                    <tr class="${bg} border-b border-slate-100">
+                        <td class="py-2 px-4 text-sm font-bold text-navy">${s.name}</td>
+                        <td class="py-2 px-4 text-center">
+                            <span class="text-base font-black text-navy">${s.score}</span>${s.score !== '-' && !isNaN(s.score) ? '<span class="text-xs text-slate-400">%</span>' : ''}
+                        </td>
+                        <td class="py-2 px-4 text-center">
+                            <span class="inline-flex items-center justify-center w-6 h-6 rounded text-xs font-bold border ${getBadgeStyle(s.behaviour)}">${s.behaviour}</span>
+                        </td>
+                        <td class="py-2 px-4 text-xs font-semibold text-slate-700">${s.target !== '-' ? s.target : ''}</td>
+                        <td class="py-2 px-4 text-xs text-slate-600 italic">${s.remarks ? '"' + s.remarks + '"' : ''}</td>
+                    </tr>
+                `);
+            });
+
+            // Update Chart
+            const ctx = document.getElementById('sv-chart').getContext('2d');
+            if (currentChartInstance) currentChartInstance.destroy();
+            currentChartInstance = new Chart(ctx, getChartConfig(student, true));
+        }
+
+        // --- 5. PRINT ALL LOGIC ---
+        function triggerPrintAll() {
+            if (CURRENT_DATA.length === 0) {
+                alert("Please load a CSV Master Sheet first before printing.");
+                return;
+            }
+
+            const container = document.getElementById('print-all-container');
+            container.innerHTML = ''; 
+            
+            printChartInstances.forEach(chart => chart.destroy());
+            printChartInstances = [];
+
+            CURRENT_DATA.forEach((student, index) => {
+                let tableRows = '';
+                student.subjects.forEach(s => {
+                    tableRows += `
+                        <tr>
+                            <td>${s.name}</td>
+                            <td style="text-align:center; font-weight:bold;">${s.score}${s.score !== '-' && !isNaN(s.score) ? '%' : ''}</td>
+                            <td style="text-align:center;">
+                                <span class="inline-flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-bold border ${getBadgeStyle(s.behaviour)}">${s.behaviour}</span>
+                            </td>
+                            <td class="remarks-col font-semibold">${s.target !== '-' ? s.target : ''}</td>
+                            <td class="remarks-col">${s.remarks}</td>
+                        </tr>
+                    `;
+                });
+
+                let printNameHTML = student.name;
+                if (student.calledName) {
+                    printNameHTML += ` <span style="color: var(--gold);">(${student.calledName})</span>`;
+                }
+
+                const pageHTML = `
+                    <!-- ONE PAGE LANDSCAPE LAYOUT -->
+                    <div class="print-page" style="padding: 10px;">
+                        <!-- Formal Print Header -->
+                        <div class="print-header flex justify-between items-center">
+                            <div class="flex items-center gap-4">
+                                <img src="https://weihaizhongshi.com/wp-content/uploads/2018/12/%ED%99%88%ED%8E%98%EC%9D%B4%EC%A7%80-%EB%89%B4-%EB%A1%9C%EA%B3%A0_%ED%9D%B0%EC%83%89.png.webp" alt="WZFS Logo" style="height: 50px; width: auto; object-fit: contain; background-color: var(--navy); padding: 5px; border-radius: 5px;">
+                                <div>
+                                    <h1 class="text-xl font-black text-navy uppercase tracking-widest" style="margin: 0; line-height: 1.2;">WEIHAI ZHONGSHI FOREIGN SCHOOL</h1>
+                                    <h2 class="text-sm font-bold text-slate-500" style="margin: 0;">Mid-Term Report | Academic Year 2025 - 2026</h2>
+                                </div>
+                            </div>
+                            
+                            <div class="text-right bg-slate-50 border border-slate-200 p-2 rounded" style="min-width: 250px;">
+                                <h3 class="text-xl font-black text-navy" style="margin: 0;">${printNameHTML}</h3>
+                                <p class="text-xs font-bold text-slate-500" style="margin: 0;">ID: ${student.id} | Grade: ${student.grade}</p>
+                            </div>
+                        </div>
+
+                        <!-- Print Body (2 Columns) -->
+                        <div class="print-body">
+                            <!-- Left: Table -->
+                            <div class="print-table-col">
+                                <table class="print-table">
+                                    <thead>
+                                        <tr>
+                                            <th style="width: 20%">Subject</th>
+                                            <th style="width: 10%; text-align:center;">Score</th>
+                                            <th style="width: 10%; text-align:center;">Behav.</th>
+                                            <th style="width: 20%">Target</th>
+                                            <th style="width: 40%">Teacher Remarks</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        ${tableRows}
+                                    </tbody>
+                                </table>
+                                
+                                <div class="mt-3 border border-slate-200 p-2 rounded bg-slate-50 inline-block">
+                                     <div class="text-[10px] font-bold text-navy mb-1">Behaviour Key:</div>
+                                     <div class="flex gap-4 text-[9px]">
+                                        <span><b class="text-green-700">1</b> - Excellent</span>
+                                        <span><b class="text-yellow-700">2</b> - Good</span>
+                                        <span><b class="text-orange-700">3</b> - Satisfactory</span>
+                                        <span><b class="text-red-700">4</b> - Needs Improvement</span>
+                                     </div>
+                                </div>
+                            </div>
+
+                            <!-- Right: Chart & Signatures -->
+                            <div class="print-chart-col">
+                                <h3 class="font-bold text-navy text-sm uppercase tracking-wider mb-1 w-full text-left border-b-2 border-gold pb-1">Performance Overview</h3>
+                                <div class="print-chart-container">
+                                    <canvas id="print-chart-${index}"></canvas>
+                                </div>
+                                
+                                <div class="w-full mt-auto mb-2">
+                                    <div class="flex justify-between gap-4 mt-6">
+                                        <div class="w-1/2 border-t-2 border-slate-300 pt-1 text-center text-[10px] text-slate-500 font-bold">
+                                            Homeroom Teacher Signature
+                                        </div>
+                                        <div class="w-1/2 border-t-2 border-slate-300 pt-1 text-center text-[10px] text-slate-500 font-bold">
+                                            Principal Signature
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                container.insertAdjacentHTML('beforeend', pageHTML);
+            });
+
+            CURRENT_DATA.forEach((student, index) => {
+                const ctx = document.getElementById(`print-chart-${index}`).getContext('2d');
+                const chart = new Chart(ctx, getChartConfig(student, false)); 
+                printChartInstances.push(chart);
+            });
+
+            setTimeout(() => {
+                window.print();
+            }, 300);
+        }
+
+        // --- 6. EXPORT TO MS WORD (.doc) ---
+        function exportToWord() {
+            if (CURRENT_DATA.length === 0) {
+                alert("Please load a CSV Master Sheet first to generate the Word document.");
+                return;
+            }
+
+            // We must briefly render the charts invisibly so Word can embed them as images
+            const tempContainer = document.createElement('div');
+            tempContainer.style.position = 'fixed';
+            tempContainer.style.top = '-9999px';
+            tempContainer.style.left = '-9999px';
+            tempContainer.style.width = '400px';
+            tempContainer.style.height = '350px';
+            document.body.appendChild(tempContainer);
+
+            // Construct Word-specific HTML Document with special XML schemas
+            let htmlContent = `
+                <html xmlns:o='urn:schemas-microsoft-com:office:office'
+                      xmlns:w='urn:schemas-microsoft-com:office:word'
+                      xmlns='http://www.w3.org/TR/REC-html40'>
+                <head>
+                    <meta charset='utf-8'>
+                    <title>WZFS Reports</title>
+                    <style>
+                        /* Forces MS Word into Landscape Mode automatically */
+                        @page WordSection1 {
+                            size: 841.9pt 595.3pt;
+                            mso-page-orientation: landscape;
+                            margin: 36.0pt 36.0pt 36.0pt 36.0pt;
+                        }
+                        div.WordSection1 { page: WordSection1; }
+                        body { font-family: 'Segoe UI', Tahoma, sans-serif; color: #333; }
+                        .page-break { page-break-after: always; }
+                    </style>
+                </head>
+                <body>
+                <div class="WordSection1">
+            `;
+
+            CURRENT_DATA.forEach((student, index) => {
+                // 1. Generate the Radar Chart as a Base64 Image
+                tempContainer.innerHTML = '<canvas></canvas>';
+                const canvas = tempContainer.querySelector('canvas');
+                const chart = new Chart(canvas, getChartConfig(student, false));
+                const chartImage = canvas.toDataURL('image/png');
+                chart.destroy();
+
+                // 2. Build the Student's Table Rows
+                let tableRows = '';
+                student.subjects.forEach(s => {
+                    // Setting explicit inline styles so Word renders colors correctly
+                    let badgeColor = '#64748b';
+                    const b = String(s.behaviour).trim();
+                    if(b==='1') badgeColor='#166534';
+                    else if(b==='2') badgeColor='#854d0e';
+                    else if(b==='3') badgeColor='#9a3412';
+                    else if(b==='4') badgeColor='#991b1b';
+
+                    tableRows += `
+                        <tr>
+                            <td style="padding: 5px; border: 1pt solid #cbd5e1;"><strong>${s.name}</strong></td>
+                            <td style="text-align: center; padding: 5px; border: 1pt solid #cbd5e1;"><strong>${s.score}${s.score !== '-' && !isNaN(s.score) ? '%' : ''}</strong></td>
+                            <td style="text-align: center; padding: 5px; border: 1pt solid #cbd5e1;"><span style="color: ${badgeColor}; font-weight: bold; font-size: 14px;">${s.behaviour}</span></td>
+                            <td style="padding: 5px; border: 1pt solid #cbd5e1;">${s.target !== '-' ? s.target : ''}</td>
+                            <td style="padding: 5px; border: 1pt solid #cbd5e1;"><i>${s.remarks}</i></td>
+                        </tr>
+                    `;
+                });
+
+                let printNameHTML = student.name;
+                if (student.calledName) {
+                    printNameHTML += ` <span style="color: #c9a227;">(${student.calledName})</span>`;
+                }
+
+                // 3. Construct the Word HTML Structure (Simplified for better MS Word compatibility)
+                htmlContent += `
+                    <div class="${index < CURRENT_DATA.length - 1 ? 'page-break' : ''}">
+                        
+                        <!-- Simplified Header without external images to prevent Word layout breaking -->
+                        <div style="border-bottom: 3px solid #1b2d5e; margin-bottom: 20px; padding-bottom: 10px;">
+                            <h1 style="color: #1b2d5e; font-size: 22px; margin: 0; text-transform: uppercase;">Weihai Zhongshi Foreign School</h1>
+                            <h2 style="color: #64748b; font-size: 14px; margin: 5px 0 10px 0;">Mid-Term Report | Academic Year 2025 - 2026</h2>
+                            <h3 style="color: #1b2d5e; font-size: 18px; margin: 0;">${printNameHTML} <span style="color: #64748b; font-size: 12px; font-weight: normal;">&nbsp;&nbsp;|&nbsp;&nbsp;ID: ${student.id} &nbsp;&nbsp;|&nbsp;&nbsp; Grade: ${student.grade}</span></h3>
+                        </div>
+
+                        <!-- Two Column Layout using strict HTML tables for MS Word -->
+                        <table width="100%" cellspacing="0" cellpadding="0" style="border: none;">
+                            <tr>
+                                <!-- Left Column: Table -->
+                                <td width="65%" valign="top" style="border: none; padding-right: 20px;">
+                                    <table border="1" cellspacing="0" cellpadding="5" style="width: 100%; border-collapse: collapse; border: 1pt solid #cbd5e1; font-size: 11px;">
+                                        <thead>
+                                            <tr style="background-color: #1b2d5e; color: white;">
+                                                <th style="width: 20%; text-align: left; padding: 5px;">Subject</th>
+                                                <th style="width: 10%; text-align: center; padding: 5px;">Score</th>
+                                                <th style="width: 10%; text-align: center; padding: 5px;">Behav.</th>
+                                                <th style="width: 20%; text-align: left; padding: 5px;">Target</th>
+                                                <th style="width: 40%; text-align: left; padding: 5px;">Teacher Remarks</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            ${tableRows}
+                                        </tbody>
+                                    </table>
+                                    
+                                    <!-- Behaviour Key -->
+                                    <div style="margin-top: 15px; font-size: 10px; padding: 8px; border: 1px solid #e2e8f0; background-color: #f8fafc;">
+                                        <strong style="color:#1b2d5e;">Behaviour Key:</strong> 
+                                        <span style="color:#166534">1 - Excellent</span> | 
+                                        <span style="color:#854d0e">2 - Good</span> | 
+                                        <span style="color:#9a3412">3 - Satisfactory</span> | 
+                                        <span style="color:#991b1b">4 - Needs Improvement</span>
+                                    </div>
+                                </td>
+                                
+                                <!-- Right Column: Chart & Signatures -->
+                                <td width="35%" valign="top" align="center" style="border: none;">
+                                    <div style="border-bottom: 2px solid #c9a227; text-align: left; margin-bottom: 10px; padding-bottom: 5px;">
+                                        <h3 style="color: #1b2d5e; font-size: 13px; margin: 0; text-transform: uppercase;">Performance Overview</h3>
+                                    </div>
+                                    <img src="${chartImage}" width="260" height="227" alt="Radar Chart" />
+                                    
+                                    <!-- Signatures -->
+                                    <table width="100%" cellspacing="0" cellpadding="0" style="border: none; margin-top: 40px;">
+                                        <tr>
+                                            <td width="45%" style="border: none; border-top: 1pt solid #94a3b8; text-align: center; font-size: 10px; color: #64748b; padding-top: 5px;">Homeroom Teacher Signature</td>
+                                            <td width="10%" style="border: none;"></td>
+                                            <td width="45%" style="border: none; border-top: 1pt solid #94a3b8; text-align: center; font-size: 10px; color: #64748b; padding-top: 5px;">Principal Signature</td>
+                                        </tr>
+                                    </table>
+                                </td>
+                            </tr>
+                        </table>
+                    </div>
+                `;
+            });
+
+            htmlContent += `</div></body></html>`;
+            document.body.removeChild(tempContainer);
+
+            // 4. Force Download via Blob
+            const blob = new Blob(['\ufeff', htmlContent], { type: 'application/msword' });
+            const downloadLink = document.createElement('a');
+            downloadLink.href = URL.createObjectURL(blob);
+            downloadLink.download = 'WZFS_Reports.doc';
+            document.body.appendChild(downloadLink);
+            downloadLink.click();
+            document.body.removeChild(downloadLink);
+        }
+
+        window.onload = () => {
+            populateDropdown();
+            renderSingleView();
+        };
+    </script>
+</body>
+</html>
